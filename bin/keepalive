@@ -2,7 +2,7 @@
 # Thin CLI over the Keep Sound Alive control endpoint.
 # Usage: keepalive on [minutes] | off | status
 set -euo pipefail
-base="${KEEPALIVE_URL:-http://127.0.0.1:4041}"
+base="${KEEPALIVE_URL:-http://127.0.0.1:4500}"
 
 case "${1:-status}" in
   on)     curl -fsS -X POST "$base/on" -H 'Content-Type: application/json' -d "{\"minutes\": ${2:-480}}" ;;

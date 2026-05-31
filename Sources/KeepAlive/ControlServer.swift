@@ -21,9 +21,8 @@ final class ControlServer {
     self.onChange = onChange
   }
 
-  func start(port: UInt16 = 4041) {
+  func start(port: UInt16 = 4500) {
     let params = NWParameters.tcp
-    params.allowLocalEndpointReuse = true
     params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
 
     guard let listener = try? NWListener(using: params) else {
@@ -31,12 +30,18 @@ final class ControlServer {
       return
     }
     self.listener = listener
+    listener.stateUpdateHandler = { state in
+      switch state {
+      case .ready: Log.line("control server ready on 127.0.0.1:\(port)")
+      case .failed(let error): Log.line("control server failed: \(error) (port \(port) in use?)")
+      default: break
+      }
+    }
     listener.newConnectionHandler = { [weak self] conn in
       conn.start(queue: .main)
       MainActor.assumeIsolated { self?.receive(conn) }
     }
     listener.start(queue: .main)
-    Log.line("control server on 127.0.0.1:\(port)")
   }
 
   private func receive(_ conn: NWConnection) {

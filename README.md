@@ -15,7 +15,7 @@ while the stack is non-empty:
 So callers are stateless: push when you start needing it, pop when you're done. If
 two holds coexist, popping one leaves the other.
 
-## Control endpoint (localhost `127.0.0.1:4041`)
+## Control endpoint (localhost `127.0.0.1:4500`)
 
     POST /on   {"minutes": 480}  -> push a hold   -> {"ok":true,"holds":N}
     POST /off                    -> pop a hold     -> {"ok":true,"holds":N}
