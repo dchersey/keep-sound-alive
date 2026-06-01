@@ -24,6 +24,9 @@ final class AppController {
       Task { @MainActor in
         guard let self else { return }
         if self.stack.sweep() { self.reconcile() }
+        // Safety net: re-establish playback if a device-change churn silently
+        // stopped it (otherwise the device idle-disconnects unnoticed).
+        self.engine.healthCheck()
       }
     }
     reconcile()

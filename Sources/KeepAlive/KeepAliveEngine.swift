@@ -33,6 +33,17 @@ final class KeepAliveEngine {
     engine.stop()
   }
 
+  /// If we should be playing but aren't (a device-change left the engine running
+  /// but silent, or it stopped), restart. Called periodically — the Bluetooth
+  /// route renegotiates often, so this is the safety net that keeps the tone alive.
+  func healthCheck() {
+    guard running else { return }
+    if !engine.isRunning || !player.isPlaying {
+      Log.line("health check: engine not playing — restarting")
+      play()
+    }
+  }
+
   // MARK: - Internals
 
   private func connect() {
