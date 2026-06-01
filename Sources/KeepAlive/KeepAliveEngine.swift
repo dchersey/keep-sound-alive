@@ -64,15 +64,21 @@ final class KeepAliveEngine {
     Log.line("reconfigured for output change")
   }
 
-  /// ~1s of a near-ultrasonic, very-low-amplitude sine: effectively silent but
-  /// enough signal to hold the audio route open.
+  /// Exactly 1 second of a 20 Hz sine at 0.05 amplitude — matching a tone
+  /// generator proven to keep Bluetooth speakers/soundbars awake. 20 Hz is at the
+  /// bottom of hearing (near-inaudible, a faint rumble at most on a sub), and —
+  /// unlike a near-ultrasonic tone — it survives Bluetooth codec high-frequency
+  /// roll-off, so the device actually "sees" audio. 1s = exactly 20 cycles, so
+  /// the looped buffer is seamless (no pulsing).
   private static func inaudibleBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
-    let frames = AVAudioFrameCount(max(format.sampleRate, 8000))
-    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+    let frames = AVAudioFrameCount(format.sampleRate)
+    guard frames > 0,
+      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)
+    else { return nil }
     buffer.frameLength = frames
 
-    let amplitude: Float = 0.0003  // ~-70 dB
-    let frequency = 19_000.0
+    let amplitude: Float = 0.05
+    let frequency = 20.0
     let sampleRate = format.sampleRate
 
     if let channels = buffer.floatChannelData {
