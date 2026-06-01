@@ -1,5 +1,8 @@
 # Keep Sound Alive
 
+[![CI](https://github.com/dchersey/keep-sound-alive/actions/workflows/ci.yml/badge.svg)](https://github.com/dchersey/keep-sound-alive/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A tiny macOS menu-bar app that stops your Bluetooth speakers and headphones from
 falling asleep when nothing's playing — by quietly playing something.
 
