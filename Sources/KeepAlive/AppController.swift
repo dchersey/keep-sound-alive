@@ -27,6 +27,15 @@ final class AppController {
       }
     }
     reconcile()
+
+    // First launch: add to login items so it autostarts. Afterward the menu
+    // toggle controls it (and a manual removal in System Settings sticks).
+    let defaults = UserDefaults.standard
+    if !defaults.bool(forKey: "loginConfigured") {
+      LoginItem.setEnabled(true)
+      defaults.set(true, forKey: "loginConfigured")
+      Log.line("first launch — login item enabled: \(LoginItem.isEnabled)")
+    }
   }
 
   /// Menu toggle: turn off (pop a hold) if on, else push a manual hold.

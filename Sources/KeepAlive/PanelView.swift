@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PanelView: View {
   let controller: AppController
+  @State private var launchAtLogin = LoginItem.isEnabled
 
   var body: some View {
     let stack = controller.stack
@@ -29,8 +30,17 @@ struct PanelView: View {
         .buttonStyle(.bordered)
 
       Divider()
-      Button("Quit") { NSApplication.shared.terminate(nil) }
-        .buttonStyle(.bordered).controlSize(.small)
+      HStack {
+        Toggle("Launch at Login", isOn: $launchAtLogin)
+          .toggleStyle(.checkbox)
+          .font(.caption)
+          .onChange(of: launchAtLogin) { _, newValue in
+            launchAtLogin = LoginItem.setEnabled(newValue)
+          }
+        Spacer()
+        Button("Quit") { NSApplication.shared.terminate(nil) }
+          .buttonStyle(.bordered).controlSize(.small)
+      }
     }
     .padding(14)
     .frame(width: 250)
