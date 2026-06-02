@@ -116,7 +116,7 @@ subwoofer, nudge the frequency up (staying low enough to survive codec roll-off)
 
 ## Credits
 
-Inspired by needing this for an [AirPods ANC auto-switcher](https://github.com/dchersey/noise-defense),
+Inspired by needing this for an [AirPods ANC auto-switcher](https://github.com/dchersey/air-defense),
 and by Tomasz Szynalski's [Online Tone Generator](https://www.szynalski.com/tone-generator/),
 which is what made me realize a low-frequency tone keeps these devices awake.
 
