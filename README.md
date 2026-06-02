@@ -38,9 +38,20 @@ the current output device awake, and gets out of your way.
   it never runs forever by accident.
 - **Stays out of the way.** No Dock icon, no window — just a menu-bar toggle.
 
-## Install
+## Download
 
-Requires **macOS 15+**. Build from source:
+Grab the latest notarized build from
+**[Releases](https://github.com/dchersey/keep-sound-alive/releases/latest)**, or directly:
+
+### ⬇ [KeepSoundAlive.zip](https://github.com/dchersey/keep-sound-alive/releases/latest/download/KeepSoundAlive.zip)
+
+Unzip it, move **Keep Sound Alive.app** to **/Applications**, and open it. It's
+signed + notarized, so it opens with no Gatekeeper warning; it lives in your menu
+bar (no Dock icon) and offers to launch at login. macOS 15+.
+
+## Build from source
+
+Requires **macOS 15+**:
 
 ```sh
 git clone https://github.com/dchersey/keep-sound-alive.git
