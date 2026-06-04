@@ -13,6 +13,10 @@ final class AppController {
   private let engine = KeepAliveEngine()
   private var server: ControlServer?
   private var sweepTimer: Timer?
+  private var sweepTicks = 0
+  // Refresh the audio stream every 30 min (360 × 5s sweeps) to clear the buzzing
+  // it develops after several hours of continuous playback.
+  private let refreshEverySweeps = 360
 
   init() {
     server = ControlServer(stack: stack, defaultMinutes: defaultMinutes) { [weak self] in
@@ -27,6 +31,10 @@ final class AppController {
         // Safety net: re-establish playback if a device-change churn silently
         // stopped it (otherwise the device idle-disconnects unnoticed).
         self.engine.healthCheck()
+
+        // Periodically reset the stream to clear the multi-hour buzzing.
+        self.sweepTicks += 1
+        if self.sweepTicks % self.refreshEverySweeps == 0 { self.engine.refresh() }
       }
     }
     reconcile()

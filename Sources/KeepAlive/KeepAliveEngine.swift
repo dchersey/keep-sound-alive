@@ -8,6 +8,9 @@ final class KeepAliveEngine {
   private let engine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private var running = false
+  // True during a periodic refresh's brief pause, so the health check doesn't
+  // restart playback out from under it.
+  private var refreshing = false
 
   init() {
     engine.attach(player)
@@ -37,10 +40,40 @@ final class KeepAliveEngine {
   /// but silent, or it stopped), restart. Called periodically — the Bluetooth
   /// route renegotiates often, so this is the safety net that keeps the tone alive.
   func healthCheck() {
-    guard running else { return }
+    guard running, !refreshing else { return }
     if !engine.isRunning || !player.isPlaying {
       Log.line("health check: engine not playing — restarting")
       play()
+    }
+  }
+
+  /// Periodic stream reset for the buzz that develops after many hours of continuous
+  /// playback. Goes through the shared settle-then-restart path.
+  func refresh() {
+    pauseThenRestart(reason: "periodic refresh")
+  }
+
+  /// Stop, let the Bluetooth stream settle ~5s, then rewire to the current output
+  /// and restart. The multi-second gap is required: testing showed an *immediate*
+  /// restart leaves the buzz (the stream/route needs time to reset) while a ~5s gap
+  /// clears it — still far below the idle-disconnect threshold, so the link holds.
+  /// A `refreshing` guard coalesces overlapping triggers and keeps the health check
+  /// from restarting playback mid-pause.
+  private func pauseThenRestart(reason: String) {
+    guard running, !refreshing else { return }
+    refreshing = true
+    Log.line("\(reason): ~5s pause to reset the audio stream")
+    player.stop()
+    engine.stop()
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(5))
+      refreshing = false
+      if running {
+        connect()  // rewire to the (possibly new) output format
+        play()
+        Log.line("\(reason): resumed")
+      }
     }
   }
 
@@ -65,14 +98,11 @@ final class KeepAliveEngine {
     }
   }
 
-  /// The default output device changed — rewire to it and restart if active.
+  /// The default output device / format changed (a volume change can trigger a BT
+  /// codec renegotiation here). Settle, then rewire and restart — an immediate
+  /// restart can leave a buzz, so this goes through the same pause path.
   private func handleConfigChange() {
-    guard running else { return }
-    player.stop()
-    engine.stop()
-    connect()
-    play()
-    Log.line("reconfigured for output change")
+    pauseThenRestart(reason: "output reconfiguration")
   }
 
   /// Exactly 1 second of a 20 Hz sine at 0.05 amplitude — matching a tone
