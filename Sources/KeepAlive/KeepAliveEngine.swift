@@ -1,21 +1,24 @@
 import AVFoundation
 
-/// Plays a continuous, inaudible tone to the default output so a Bluetooth device
-/// (AirPods Max, soundbar) doesn't idle-disconnect. Follows the default output as
-/// it changes (e.g. AirPods connecting) by reconfiguring on a config-change.
+/// Plays a continuous, near-inaudible **stochastic** sub-bass signal to the default
+/// output so a Bluetooth device (AirPods Max, soundbar) doesn't idle-disconnect.
+///
+/// A constant 20 Hz tone proved insufficient: some devices' idle detectors ignore an
+/// unchanging signal and disconnect anyway, and a sustained single frequency
+/// resonated into an audible buzz after hours. Instead we render a sine whose
+/// frequency random-walks (~18–45 Hz) and whose amplitude wobbles low, plus
+/// occasional brief low "ticks" — varied enough to read as real audio (defeating
+/// idle detection) and to avoid resonance, yet low and low-frequency enough to stay
+/// near-inaudible and survive Bluetooth codec high-frequency roll-off. Follows the
+/// default output as it changes by rebuilding on a configuration change.
 @MainActor
 final class KeepAliveEngine {
   private let engine = AVAudioEngine()
-  private let player = AVAudioPlayerNode()
+  private var source: AVAudioSourceNode?
   private var running = false
-  // True during a periodic refresh's brief pause, so the health check doesn't
-  // restart playback out from under it.
-  private var refreshing = false
+  private let gen = Generator()
 
   init() {
-    engine.attach(player)
-    connect()
-
     NotificationCenter.default.addObserver(
       forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
     ) { [weak self] _ in
@@ -26,109 +29,128 @@ final class KeepAliveEngine {
   func start() {
     guard !running else { return }
     running = true
-    play()
+    rebuild()
   }
 
   func stop() {
     guard running else { return }
     running = false
-    player.stop()
-    engine.stop()
+    teardown()
   }
 
-  /// If we should be playing but aren't (a device-change left the engine running
-  /// but silent, or it stopped), restart. Called periodically — the Bluetooth
-  /// route renegotiates often, so this is the safety net that keeps the tone alive.
+  /// Safety net (called periodically): if a device-change churn left the engine
+  /// stopped, bring it back.
   func healthCheck() {
-    guard running, !refreshing else { return }
-    if !engine.isRunning || !player.isPlaying {
-      Log.line("health check: engine not playing — restarting")
-      play()
-    }
-  }
-
-  /// Periodic stream reset for the buzz that develops after many hours of continuous
-  /// playback. Goes through the shared settle-then-restart path.
-  func refresh() {
-    pauseThenRestart(reason: "periodic refresh")
-  }
-
-  /// Stop, let the Bluetooth stream settle ~5s, then rewire to the current output
-  /// and restart. The multi-second gap is required: testing showed an *immediate*
-  /// restart leaves the buzz (the stream/route needs time to reset) while a ~5s gap
-  /// clears it — still far below the idle-disconnect threshold, so the link holds.
-  /// A `refreshing` guard coalesces overlapping triggers and keeps the health check
-  /// from restarting playback mid-pause.
-  private func pauseThenRestart(reason: String) {
-    guard running, !refreshing else { return }
-    refreshing = true
-    Log.line("\(reason): ~5s pause to reset the audio stream")
-    player.stop()
-    engine.stop()
-
-    Task { @MainActor in
-      try? await Task.sleep(for: .seconds(5))
-      refreshing = false
-      if running {
-        connect()  // rewire to the (possibly new) output format
-        play()
-        Log.line("\(reason): resumed")
-      }
+    guard running else { return }
+    if !engine.isRunning {
+      Log.line("health check: engine not running — restarting")
+      rebuild()
     }
   }
 
   // MARK: - Internals
 
-  private func connect() {
-    let format = engine.mainMixerNode.outputFormat(forBus: 0)
-    engine.connect(player, to: engine.mainMixerNode, format: format)
+  /// The default output device/format changed — rebuild against the new output.
+  private func handleConfigChange() {
+    guard running else { return }
+    rebuild()
+    Log.line("reconfigured for output change")
   }
 
-  private func play() {
-    guard running else { return }
-    let format = engine.mainMixerNode.outputFormat(forBus: 0)
-    guard let buffer = Self.inaudibleBuffer(format: format) else { return }
+  /// (Re)build the source node for the current output format and start the engine.
+  private func rebuild() {
+    teardown()
+
+    let outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+    let sampleRate = outFormat.sampleRate > 0 ? outFormat.sampleRate : 44_100
+    gen.sampleRate = sampleRate
+
+    // Standard deinterleaved float: the render block writes one buffer per channel.
+    guard
+      let format = AVAudioFormat(
+        standardFormatWithSampleRate: sampleRate, channels: max(outFormat.channelCount, 1))
+    else { return }
+
+    let g = gen
+    // @Sendable so the render block is NON-isolated: AVAudioSourceNode invokes it on
+    // the realtime audio thread, and a main-actor-inherited closure would trap in
+    // Swift's executor isolation check (swift_task_checkIsolated → SIGTRAP).
+    let render: AVAudioSourceNodeRenderBlock = { @Sendable _, _, frameCount, abl in
+      g.render(frameCount: frameCount, abl: abl)
+      return noErr
+    }
+    let node = AVAudioSourceNode(format: format, renderBlock: render)
+    engine.attach(node)
+    engine.connect(node, to: engine.mainMixerNode, format: format)
+    source = node
 
     do {
-      if !engine.isRunning { try engine.start() }
-      player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
-      player.play()
+      try engine.start()
     } catch {
       Log.line("engine start failed: \(error.localizedDescription)")
     }
   }
 
-  /// The default output device / format changed (a volume change can trigger a BT
-  /// codec renegotiation here). Settle, then rewire and restart — an immediate
-  /// restart can leave a buzz, so this goes through the same pause path.
-  private func handleConfigChange() {
-    pauseThenRestart(reason: "output reconfiguration")
+  private func teardown() {
+    engine.stop()
+    if let source {
+      engine.detach(source)
+      self.source = nil
+    }
   }
+}
 
-  /// Exactly 1 second of a 20 Hz sine at 0.05 amplitude — matching a tone
-  /// generator proven to keep Bluetooth speakers/soundbars awake. 20 Hz is at the
-  /// bottom of hearing (near-inaudible, a faint rumble at most on a sub), and —
-  /// unlike a near-ultrasonic tone — it survives Bluetooth codec high-frequency
-  /// roll-off, so the device actually "sees" audio. 1s = exactly 20 cycles, so
-  /// the looped buffer is seamless (no pulsing).
-  private static func inaudibleBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
-    let frames = AVAudioFrameCount(format.sampleRate)
-    guard frames > 0,
-      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)
-    else { return nil }
-    buffer.frameLength = frames
+/// Real-time generator for the keep-alive signal.
+///
+/// Strategy: a **steady 20 Hz** tone — below a soundbar's reproduction range, so it
+/// stays inaudible even if the device's auto-gain ramps it — pulsed **intermittently
+/// (60 s on / 20 s off)**. The 20 s gap is under the soundbar's ~30 s idle timeout
+/// (so it never disconnects) and keeps the auto-gain from acclimating to a constant
+/// tone. On/off transitions glide the amplitude (no clicks); phase is wrapped.
+///
+/// All state is mutated only on the audio render thread; `sampleRate` is set on the
+/// main thread while the engine is stopped (rebuild() tears down first), so there's
+/// no concurrent access — hence `@unchecked Sendable`. The render path allocates
+/// nothing and takes no locks.
+private final class Generator: @unchecked Sendable {
+  var sampleRate: Double = 44_100
 
-    let amplitude: Float = 0.05
-    let frequency = 20.0
-    let sampleRate = format.sampleRate
+  // Tunable — adjust from real-world results.
+  private let toneFreq = 20.0  // Hz — below the soundbar's dynamic range → inaudible
+  private let toneAmp = 0.05  // level during the "on" window
+  private let onSecs = 60.0  // tone duration
+  private let offSecs = 20.0  // silence (< the ~30 s soundbar idle timeout)
+  private let ampGlide = 0.0008  // per-sample amplitude glide (~28 ms; click-free)
 
-    if let channels = buffer.floatChannelData {
-      for ch in 0..<Int(format.channelCount) {
-        for i in 0..<Int(frames) {
-          channels[ch][i] = amplitude * Float(sin(2.0 * .pi * frequency * Double(i) / sampleRate))
+  private var elapsed = 0  // frames since (re)start
+  private var phase = 0.0
+  private var amp = 0.0  // current amplitude (starts muted → fades in)
+
+  func render(frameCount: AVAudioFrameCount, abl: UnsafeMutablePointer<AudioBufferList>) {
+    let buffers = UnsafeMutableAudioBufferListPointer(abl)
+    let n = Int(frameCount)
+    let sr = sampleRate
+    let twoPi = 2.0 * Double.pi
+
+    let onFrames = Int(onSecs * sr)
+    let period = max(onFrames + Int(offSecs * sr), 1)
+
+    for i in 0..<n {
+      let on = (elapsed % period) < onFrames  // 60 s on, 20 s off
+      elapsed += 1
+
+      let target = on ? toneAmp : 0.0
+      amp += (target - amp) * ampGlide
+
+      phase += twoPi * toneFreq / sr
+      if phase >= twoPi { phase -= twoPi }
+      let v = Float(amp * sin(phase))
+
+      for b in 0..<buffers.count {
+        if let data = buffers[b].mData {
+          data.assumingMemoryBound(to: Float.self)[i] = v
         }
       }
     }
-    return buffer
   }
 }
