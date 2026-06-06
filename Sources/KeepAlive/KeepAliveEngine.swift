@@ -38,6 +38,13 @@ final class KeepAliveEngine {
     teardown()
   }
 
+  /// Mute/unmute the keep-alive tone without stopping the engine. Set true while
+  /// other audio is playing (it already keeps the device awake), so our tone never
+  /// buzzes over it; the amplitude glides, so toggling is click-free.
+  func setSuppressed(_ suppressed: Bool) {
+    gen.suppressed = suppressed
+  }
+
   /// Safety net (called periodically): if a device-change churn left the engine
   /// stopped, bring it back.
   func healthCheck() {
@@ -115,6 +122,12 @@ final class KeepAliveEngine {
 private final class Generator: @unchecked Sendable {
   var sampleRate: Double = 44_100
 
+  // Set from the main thread, read on the render thread each block. A plain Bool is
+  // the standard lock-free realtime pattern here: a torn read is impossible for a
+  // Bool, and being one block (~ms) stale on a transition is inaudible (the amp
+  // glides anyway). When true, the tone target drops to 0 — see render().
+  var suppressed = false
+
   // Tunable — adjust from real-world results.
   private let toneFreq = 20.0  // Hz — below the soundbar's dynamic range → inaudible
   private let toneAmp = 0.05  // level during the "on" window
@@ -139,7 +152,8 @@ private final class Generator: @unchecked Sendable {
       let on = (elapsed % period) < onFrames  // 60 s on, 20 s off
       elapsed += 1
 
-      let target = on ? toneAmp : 0.0
+      // Mute while other audio is playing (it keeps the device awake on its own).
+      let target = (on && !suppressed) ? toneAmp : 0.0
       amp += (target - amp) * ampGlide
 
       phase += twoPi * toneFreq / sr

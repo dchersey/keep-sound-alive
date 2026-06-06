@@ -28,6 +28,11 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
+  <!-- "Monitor audio" uses a Core Audio process tap to read the system output level
+       so the keep-alive tone can mute itself over real playback. The tap needs the
+       user's authorization; these strings explain the prompt. -->
+  <key>NSAudioCaptureUsageDescription</key><string>Keep Sound Alive watches the audio output level so it can mute its keep-alive tone while you're playing music or video.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Keep Sound Alive watches the audio output level so it can mute its keep-alive tone while you're playing music or video.</string>
 </dict>
 </plist>
 PLIST
