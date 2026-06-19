@@ -31,15 +31,6 @@ struct PanelView: View {
 
       Divider()
 
-      Toggle("Mute when other audio plays", isOn: Binding(
-        get: { controller.monitorAudio },
-        set: { controller.setMonitorAudio($0) }))
-        .toggleStyle(.checkbox)
-        .font(.caption)
-      Text("Watches the audio output so the keep-alive tone goes silent while music or video is playing. Asks for audio permission the first time.")
-        .font(.caption2).foregroundStyle(.tertiary)
-        .fixedSize(horizontal: false, vertical: true)
-
       HStack {
         Toggle("Launch at Login", isOn: $launchAtLogin)
           .toggleStyle(.checkbox)
